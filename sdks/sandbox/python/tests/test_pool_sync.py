@@ -32,7 +32,7 @@ from opensandbox.exceptions import (
     PoolEmptyException,
     PoolNotRunningException,
 )
-from opensandbox.models.sandboxes import PlatformSpec
+from opensandbox.models.sandboxes import CredentialProxyConfig, PlatformSpec
 from opensandbox.pool import (
     AcquirePolicy,
     InMemoryPoolStateStore,
@@ -359,6 +359,39 @@ def test_acquire_direct_create_forwards_pool_creation_platform() -> None:
         pool.acquire()
 
         assert captured_kwargs["platform"] == PlatformSpec(os="linux", arch="arm64")
+    finally:
+        pool.shutdown(False)
+
+
+def test_acquire_forwards_credential_proxy() -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    class CapturingSandbox(FakeSandbox):
+        @classmethod
+        def create(cls, *args: Any, **kwargs: Any) -> CapturingSandbox:
+            captured_kwargs.update(kwargs)
+            return cls("created-with-credential-proxy")
+
+    pool = SandboxPoolSync(
+        pool_name="pool",
+        owner_id="owner-1",
+        max_idle=0,
+        state_store=InMemoryPoolStateStore(),
+        connection_config=ConnectionConfigSync(),
+        creation_spec=PoolCreationSpec(
+            image="ubuntu:22.04",
+            credential_proxy=CredentialProxyConfig(enabled=True),
+        ),
+        sandbox_manager_factory=lambda config: FakeManager(),  # type: ignore[arg-type,return-value]
+        sandbox_factory=CapturingSandbox,  # type: ignore[arg-type]
+    )
+    pool.start()
+    try:
+        pool.acquire()
+
+        assert captured_kwargs["credential_proxy"] == CredentialProxyConfig(
+            enabled=True
+        )
     finally:
         pool.shutdown(False)
 
